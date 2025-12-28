@@ -35,7 +35,13 @@ class ProductScraper:
         self.password = password
         self.headless = headless
         self.search_query = search_query
-        self.target_url = f"https://now.breakthrubev.com/bbg/en/search?text={search_query}"
+
+        # Use browse URL if query is empty or "all", otherwise use search
+        if search_query.lower() in ['', 'all', 'browse']:
+            self.target_url = "https://now.breakthrubev.com/bbg/en/Shop-All/Spirits"
+        else:
+            self.target_url = f"https://now.breakthrubev.com/bbg/en/search?text={search_query}"
+
         self.login_url = os.getenv('LOGIN_URL', "https://www.breakthrubev.com/login")
         self.base_domain = "https://now.breakthrubev.com"
 
