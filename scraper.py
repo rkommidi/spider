@@ -463,7 +463,7 @@ class ProductScraper:
             desc_items = page.query_selector_all('.m-description-list__item')
             for item in desc_items:
                 label_elem = item.query_selector('.m-description-list__item-label')
-                data_elem = item.query_selector('.m-description-list__item-data')
+                data_elem = item.query_selector('.m-description-list__list-item-data')
 
                 if label_elem and data_elem:
                     label = label_elem.inner_text().strip()
