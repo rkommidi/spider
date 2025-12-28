@@ -44,10 +44,22 @@ def main():
     """Main execution function."""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Scrape product prices from Breakthru Beverage portal')
-    parser.add_argument('--query', '-q', type=str, default='oban', help='Search query for products (default: oban)')
+    parser.add_argument('--query', '-q', type=str, default='spirits',
+                       help='Search query for products (default: spirits)')
+    parser.add_argument('--infinite-scroll', action='store_true', default=False,
+                       help='Enable infinite scroll to collect all products (may take 6-10 hours)')
+    parser.add_argument('--scroll-pause', type=float, default=2.0,
+                       help='Seconds to wait after each scroll (default: 2.0)')
+    parser.add_argument('--scroll-max-attempts', type=int, default=100,
+                       help='Maximum scroll attempts (default: 100)')
+    parser.add_argument('--scroll-threshold', type=int, default=3,
+                       help='Stop after N scrolls with no new products (default: 3)')
     args = parser.parse_args()
 
     logger.info(f"Starting price scraper for query: '{args.query}'...")
+    if args.infinite_scroll:
+        logger.info("Infinite scroll ENABLED - this will collect all products (may take several hours)")
+        logger.info(f"Scroll settings: pause={args.scroll_pause}s, max_attempts={args.scroll_max_attempts}, threshold={args.scroll_threshold}")
 
     # Load configuration
     config = load_config()
@@ -61,7 +73,11 @@ def main():
         username=config['username'],
         password=config['password'],
         headless=True,
-        search_query=args.query
+        search_query=args.query,
+        enable_infinite_scroll=args.infinite_scroll,
+        scroll_pause_time=args.scroll_pause,
+        scroll_max_attempts=args.scroll_max_attempts,
+        scroll_no_new_products_threshold=args.scroll_threshold
     )
 
     try:

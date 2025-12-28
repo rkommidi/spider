@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 class ProductScraper:
     """Handles web scraping of product prices using Playwright."""
 
-    def __init__(self, username: str, password: str, headless: bool = True, search_query: str = "oban"):
+    def __init__(self, username: str, password: str, headless: bool = True, search_query: str = "spirits",
+                 enable_infinite_scroll: bool = False, scroll_pause_time: float = 2.0,
+                 scroll_max_attempts: int = 100, scroll_no_new_products_threshold: int = 3):
         """
         Initialize the scraper.
 
@@ -23,7 +25,11 @@ class ProductScraper:
             username: Login username
             password: Login password
             headless: Run browser in headless mode
-            search_query: Product search query (default: "oban")
+            search_query: Product search query (default: "spirits")
+            enable_infinite_scroll: Enable infinite scroll to collect all products (default: False)
+            scroll_pause_time: Seconds to wait after each scroll for content to load (default: 2.0)
+            scroll_max_attempts: Maximum scroll attempts as safety limit (default: 100)
+            scroll_no_new_products_threshold: Stop after N scrolls with no new products (default: 3)
         """
         self.username = username
         self.password = password
@@ -32,6 +38,12 @@ class ProductScraper:
         self.target_url = f"https://now.breakthrubev.com/bbg/en/search?text={search_query}"
         self.login_url = os.getenv('LOGIN_URL', "https://www.breakthrubev.com/login")
         self.base_domain = "https://now.breakthrubev.com"
+
+        # Infinite scroll configuration
+        self.enable_infinite_scroll = enable_infinite_scroll
+        self.scroll_pause_time = scroll_pause_time
+        self.scroll_max_attempts = scroll_max_attempts
+        self.scroll_no_new_products_threshold = scroll_no_new_products_threshold
 
     def scrape_products(self, max_retries: int = 3) -> List[Dict]:
         """
@@ -231,6 +243,166 @@ class ProductScraper:
             page.screenshot(path="login_error.png")
             raise Exception(f"Login failed: {str(e)}")
 
+    def _save_checkpoint(self, product_urls: List[str], checkpoint_file: str = "scroll_checkpoint.json"):
+        """
+        Save collected URLs to checkpoint file for resume capability.
+
+        Args:
+            product_urls: List of product URLs to save
+            checkpoint_file: Path to checkpoint file
+        """
+        import json
+        checkpoint_data = {
+            'urls': product_urls,
+            'timestamp': datetime.now().isoformat(),
+            'total_urls': len(product_urls)
+        }
+        try:
+            with open(checkpoint_file, 'w') as f:
+                json.dump(checkpoint_data, f, indent=2)
+            logger.info(f"Checkpoint saved: {len(product_urls)} URLs saved to {checkpoint_file}")
+        except Exception as e:
+            logger.error(f"Failed to save checkpoint: {str(e)}")
+
+    def _load_checkpoint(self, checkpoint_file: str = "scroll_checkpoint.json") -> Optional[List[str]]:
+        """
+        Load URLs from checkpoint file if it exists.
+
+        Args:
+            checkpoint_file: Path to checkpoint file
+
+        Returns:
+            List of URLs if checkpoint exists, None otherwise
+        """
+        import json
+        if os.path.exists(checkpoint_file):
+            try:
+                with open(checkpoint_file, 'r') as f:
+                    data = json.load(f)
+                logger.info(f"Checkpoint loaded: {len(data['urls'])} URLs from {data['timestamp']}")
+                return data['urls']
+            except Exception as e:
+                logger.error(f"Failed to load checkpoint: {str(e)}")
+                return None
+        return None
+
+    def _navigate_with_retry(self, page: Page, url: str, max_retries: int = 3) -> bool:
+        """
+        Navigate to URL with retry logic for robustness.
+
+        Args:
+            page: Playwright page object
+            url: URL to navigate to
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            True if navigation succeeded, False otherwise
+        """
+        for attempt in range(max_retries):
+            try:
+                page.goto(url, wait_until="networkidle", timeout=15000)
+                return True
+            except PlaywrightTimeoutError:
+                logger.warning(f"Navigation timeout (attempt {attempt+1}/{max_retries}): {url}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+                else:
+                    logger.error(f"Failed to navigate after {max_retries} attempts: {url}")
+                    return False
+            except Exception as e:
+                logger.error(f"Navigation error (attempt {attempt+1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                else:
+                    return False
+        return False
+
+    def _scroll_and_collect_product_urls(self, page: Page) -> List[str]:
+        """
+        Scroll the search results page to load all products via infinite scroll.
+
+        Args:
+            page: Playwright page object
+
+        Returns:
+            List of unique product URLs discovered
+        """
+        product_urls = set()
+        consecutive_no_new = 0
+        scroll_count = 0
+
+        logger.info("Starting infinite scroll to collect all product URLs...")
+
+        while scroll_count < self.scroll_max_attempts:
+            scroll_count += 1
+
+            # Get current product count before scroll
+            previous_count = len(product_urls)
+
+            # Extract product URLs currently in DOM
+            product_cards = page.query_selector_all('.m-product-card')
+            for card in product_cards:
+                try:
+                    link_elem = card.query_selector('a.m-product-card__link, a[href*="/p/"]')
+                    if link_elem:
+                        href = link_elem.get_attribute('href')
+                        if href:
+                            if href.startswith('/'):
+                                url = f"{self.base_domain}{href}"
+                            elif href.startswith('http'):
+                                url = href
+                            else:
+                                continue
+                            # Clean up query parameters if needed
+                            if '?' in url:
+                                url = url.split('?')[0] + '?' + url.split('?')[1].split('&ref=')[0] if '&ref=' in url else url
+                            product_urls.add(url)
+                except Exception as e:
+                    logger.debug(f"Error extracting URL from card: {str(e)}")
+                    continue
+
+            # Check if new products were found
+            new_count = len(product_urls)
+            new_products_found = new_count - previous_count
+
+            logger.info(f"Scroll {scroll_count}: Found {new_count} total products ({new_products_found} new)")
+
+            if new_products_found == 0:
+                consecutive_no_new += 1
+                logger.info(f"No new products found ({consecutive_no_new}/{self.scroll_no_new_products_threshold})")
+
+                if consecutive_no_new >= self.scroll_no_new_products_threshold:
+                    logger.info(f"Stopping: No new products after {consecutive_no_new} consecutive scrolls")
+                    break
+            else:
+                consecutive_no_new = 0
+
+            # Scroll to bottom of page
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+
+            # Wait for potential new content to load
+            time.sleep(self.scroll_pause_time)
+
+            # Additional wait for network to settle (optional but recommended)
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except PlaywrightTimeoutError:
+                # Network might not settle, continue anyway
+                pass
+
+            # Save checkpoint every 20 scrolls
+            if scroll_count % 20 == 0:
+                self._save_checkpoint(list(product_urls))
+
+        if scroll_count >= self.scroll_max_attempts:
+            logger.warning(f"Reached maximum scroll attempts ({self.scroll_max_attempts})")
+
+        # Save final checkpoint
+        self._save_checkpoint(list(product_urls))
+
+        logger.info(f"Infinite scroll complete: Collected {len(product_urls)} unique product URLs")
+        return list(product_urls)
+
     def _extract_products(self, page: Page) -> List[Dict]:
         """
         Extract product information from the search results page.
@@ -245,78 +417,127 @@ class ProductScraper:
         scraped_at = datetime.now()
 
         # Wait for product listings to load
-        # The new portal uses m-product-card class
         try:
             page.wait_for_selector('.m-product-card', timeout=10000)
             logger.info("Product cards loaded successfully")
         except PlaywrightTimeoutError:
             logger.warning("Product selector not found, attempting alternate selectors")
 
-        # New portal uses .m-product-card for product containers
-        product_selectors = [
-            '.m-product-card',
-            'div[class*="product-card"]',
-            '.product',
-            '.product-item',
-        ]
+        # Collect product URLs
+        product_urls = []
 
-        # Try different selectors to find products
-        product_elements = []
-        for selector in product_selectors:
-            product_elements = page.query_selector_all(selector)
-            if product_elements:
-                logger.info(f"Found {len(product_elements)} products using selector: {selector}")
-                break
+        if self.enable_infinite_scroll:
+            # Use infinite scroll to collect all product URLs
+            logger.info("Infinite scroll enabled - collecting all product URLs...")
+            product_urls = self._scroll_and_collect_product_urls(page)
+        else:
+            # Original behavior: Extract from visible products only
+            logger.info("Infinite scroll disabled - extracting from visible products only...")
 
-        if not product_elements:
-            logger.warning("No products found with standard selectors")
-            # Take screenshot for debugging
-            page.screenshot(path="no_products_found.png")
-            return products
+            product_selectors = [
+                '.m-product-card',
+                'div[class*="product-card"]',
+                '.product',
+                '.product-item',
+            ]
 
-        # First pass: Extract all basic product info from search results
-        basic_products = []
-        for idx, element in enumerate(product_elements, 1):
+            # Try different selectors to find products
+            product_elements = []
+            for selector in product_selectors:
+                product_elements = page.query_selector_all(selector)
+                if product_elements:
+                    logger.info(f"Found {len(product_elements)} products using selector: {selector}")
+                    break
+
+            if not product_elements:
+                logger.warning("No products found with standard selectors")
+                page.screenshot(path="no_products_found.png")
+                return products
+
+            # Extract URLs from visible elements
+            for idx, element in enumerate(product_elements, 1):
+                try:
+                    basic_product = self._extract_product_from_element(element)
+                    if basic_product and basic_product.get('url'):
+                        product_urls.append(basic_product['url'])
+                except Exception as e:
+                    logger.error(f"Error extracting URL from product {idx}: {str(e)}")
+                    continue
+
+        logger.info(f"Found {len(product_urls)} product URLs, now fetching details...")
+
+        # Second pass: Visit each product detail page to get full details
+        for idx, url in enumerate(product_urls, 1):
             try:
-                logger.info(f"Extracting basic info from product {idx}/{len(product_elements)}")
-                basic_product = self._extract_product_from_element(element)
-                if basic_product:
-                    basic_products.append(basic_product)
-                    logger.info(f"Got basic info: {basic_product['name']}")
-                else:
-                    logger.warning(f"Could not extract basic product info from element {idx}")
-            except Exception as e:
-                logger.error(f"Error extracting basic info from product {idx}: {str(e)}")
-                continue
+                logger.info(f"[{idx}/{len(product_urls)}] Extracting details from: {url}")
 
-        logger.info(f"Extracted basic info for {len(basic_products)} products, now fetching details...")
+                # Navigate to product page with retry logic
+                if not self._navigate_with_retry(page, url):
+                    logger.error(f"Skipping product {idx} - navigation failed")
+                    continue
+                time.sleep(1)
 
-        # Second pass: Visit each product detail page to get additional fields
-        for idx, basic_product in enumerate(basic_products, 1):
-            try:
-                if basic_product.get('url'):
-                    logger.info(f"[{idx}/{len(basic_products)}] Extracting details for: {basic_product['name']}")
+                # Extract product name and basic info from detail page
+                product = {
+                    'name': None,
+                    'price': None,
+                    'url': url,
+                    'scraped_at': scraped_at
+                }
+
+                # Extract product name from detail page
+                name_selectors = [
+                    'h1.m-product-name',
+                    'h1[data-product-name]',
+                    '.m-product-overview__name',
+                    'h1',
+                ]
+                for selector in name_selectors:
                     try:
-                        detailed_product = self._extract_product_details(page, basic_product['url'])
-                        # Merge basic and detailed data
-                        product = {**basic_product, **detailed_product}
-                        product['scraped_at'] = scraped_at
-                        products.append(product)
-                        logger.info(f"[{idx}/{len(basic_products)}] Successfully extracted: {basic_product['name']}")
-                    except Exception as e:
-                        logger.error(f"Error extracting details for {basic_product['name']}: {str(e)}")
-                        # Add product with basic info only
-                        basic_product['scraped_at'] = scraped_at
-                        products.append(basic_product)
-                        logger.info(f"Added {basic_product['name']} with basic info only")
+                        name_elem = page.query_selector(selector)
+                        if name_elem:
+                            product['name'] = name_elem.inner_text().strip()
+                            if product['name']:
+                                break
+                    except:
+                        continue
+
+                # Extract price from detail page
+                price_selectors = [
+                    '.m-product-card__price .a-price',
+                    '.a-price',
+                    '.price',
+                    '[data-product-price]',
+                ]
+                for selector in price_selectors:
+                    try:
+                        price_elem = page.query_selector(selector)
+                        if price_elem:
+                            price_text = price_elem.inner_text().strip()
+                            price = self._parse_price(price_text)
+                            if price is not None:
+                                product['price'] = price
+                                break
+                    except:
+                        continue
+
+                # Extract detailed product information
+                detailed_product = self._extract_product_details(page, url)
+                product.update(detailed_product)
+
+                if product['name']:
+                    products.append(product)
+                    logger.info(f"[{idx}/{len(product_urls)}] Successfully extracted: {product['name']}")
                 else:
-                    # No URL, just use basic data
-                    basic_product['scraped_at'] = scraped_at
-                    products.append(basic_product)
-                    logger.info(f"Added {basic_product['name']} (no URL for details)")
+                    logger.warning(f"[{idx}/{len(product_urls)}] Could not extract name from: {url}")
+
             except Exception as e:
-                logger.error(f"Error processing product {basic_product.get('name', 'unknown')}: {str(e)}", exc_info=True)
+                logger.error(f"Error extracting product {idx} from {url}: {str(e)}")
                 continue
+
+            # Log progress every 50 products
+            if idx % 50 == 0:
+                logger.info(f"Progress: {idx}/{len(product_urls)} products processed ({(idx/len(product_urls)*100):.1f}%)")
 
         return products
 

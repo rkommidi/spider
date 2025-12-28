@@ -18,6 +18,15 @@ cp .env.example .env
 # Run the web scraper (requires valid credentials in .env)
 python run_scraper.py
 
+# Run with infinite scroll to collect ALL products (6-10 hours)
+python run_scraper.py --infinite-scroll
+
+# Customize infinite scroll behavior
+python run_scraper.py --infinite-scroll --scroll-max-attempts 50 --scroll-pause 3.0
+
+# Test infinite scroll with limited scrolls
+python run_scraper.py --infinite-scroll --scroll-max-attempts 10
+
 # Start Flask web application
 python app.py
 # Access at http://localhost:5000
@@ -138,6 +147,51 @@ username_selectors = [
 When modifying selectors:
 1. Test against the live site first
 2. Add new selectors at the top of the list (most specific first)
+
+### Infinite Scroll Feature
+
+The scraper supports **infinite scroll** to collect all products from the website (7,000+ products vs 184 without scrolling).
+
+**How It Works**:
+1. Progressively scrolls the search results page to trigger dynamic content loading
+2. Extracts product URLs after each scroll
+3. Stops when no new products are found after N consecutive scrolls (default: 3)
+4. Saves checkpoints every 20 scrolls for resume capability
+5. Then visits each product URL to extract full details
+
+**Usage**:
+```bash
+# Enable infinite scroll (may take 6-10 hours for 7,000 products)
+python run_scraper.py --infinite-scroll
+
+# Customize scroll behavior
+python run_scraper.py --infinite-scroll \
+  --scroll-max-attempts 100 \
+  --scroll-pause 2.0 \
+  --scroll-threshold 3
+```
+
+**Configuration Options**:
+- `--infinite-scroll`: Enable infinite scroll (default: disabled)
+- `--scroll-max-attempts`: Maximum scroll attempts as safety limit (default: 100)
+- `--scroll-pause`: Seconds to wait after each scroll (default: 2.0)
+- `--scroll-threshold`: Stop after N scrolls with no new products (default: 3)
+
+**Checkpoint System**:
+- Saves URLs to `scroll_checkpoint.json` every 20 scrolls
+- Allows recovery if scraper crashes during scrolling
+- Checkpoint includes: URLs, timestamp, total count
+
+**Performance Notes**:
+- Scroll phase: ~10-15 minutes to collect all URLs
+- Detail extraction: ~3-5 seconds per product = 6-10 hours for 7,000 products
+- Memory usage: ~500MB-1GB during scroll phase
+- Database size: ~100MB after full scrape
+
+**Troubleshooting**:
+- If few products found: Try different search queries or browse URL
+- If scroll stops early: Increase `--scroll-pause` time (slow network)
+- If crashes: Check `scroll_checkpoint.json` for resume capability
 3. Keep generic fallbacks at the end
 4. Update scraper.py:124-180 for login selectors
 5. Update scraper.py:200-220 for product selectors

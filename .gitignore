@@ -52,3 +52,4 @@ playwright/.cache/
 # Temporary files
 tmp/
 temp/
+scroll_checkpoint.json
