@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Statistics - Product Price Tracker{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 20px; color: #2c3e50;">Dashboard & Statistics</h1>
+
+<!-- Statistics Overview -->
+<div class="stats">
+    <div class="stat-box">
+        <h3>Total Products</h3>
+        <div class="value">{{ total_products }}</div>
+    </div>
+    <div class="stat-box">
+        <h3>Total Deals</h3>
+        <div class="value">{{ stats.total_deals if stats else 0 }}</div>
+    </div>
+    <div class="stat-box">
+        <h3>Products with Deals</h3>
+        <div class="value">{{ stats.products_with_deals if stats else 0 }}</div>
+    </div>
+    <div class="stat-box">
+        <h3>Avg Deals/Product</h3>
+        <div class="value">{{ stats.avg_deals_per_product if stats else 0 }}</div>
+    </div>
+    <div class="stat-box">
+        <h3>Price Changes</h3>
+        <div class="value">{{ price_changes|length }}</div>
+    </div>
+    <div class="stat-box">
+        <h3>Last Updated</h3>
+        <div class="value" style="font-size: 16px;">
+            {{ last_scrape | format_datetime if last_scrape else 'Never' }}
+        </div>
+    </div>
+</div>
+
+<!-- Products by Spirit Type -->
+{% if stats and stats.by_spirit_type %}
+<div class="card">
+    <h2>Products by Spirit Type</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+        {% for spirit in stats.by_spirit_type %}
+        <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; text-align: center;">
+            <div style="font-size: 24px; font-weight: bold; color: #2196F3;">{{ spirit.count }}</div>
+            <div style="color: #666; margin-top: 5px;">{{ spirit.spirit_type }}</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Recent Price Changes -->
+{% if price_changes %}
+<div class="card">
+    <h2>Recent Price Changes (Last 20)</h2>
+    <table id="price-changes-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-type="text">Product</th>
+                <th class="sortable" data-type="price">Previous Price</th>
+                <th class="sortable" data-type="price">Current Price</th>
+                <th class="sortable" data-type="number">Change</th>
+                <th class="sortable" data-type="date">Updated</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in price_changes[:20] %}
+            <tr>
+                <td><a href="/product/{{ item.id }}">{{ item.name }}</a></td>
+                <td>{{ item.previous_price | format_price }}</td>
+                <td class="price">{{ item.current_price | format_price }}</td>
+                <td class="{{ item.price_change | price_change_class }}">
+                    {{ '{:+.2f}'.format(item.price_change) if item.price_change else 'N/A' }}
+                </td>
+                <td class="timestamp">{{ item.last_updated | format_datetime }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <div class="empty-state">
+        <h2>No Price Changes Yet</h2>
+        <p>Price changes will appear here after the scraper runs multiple times.</p>
+    </div>
+</div>
+{% endif %}
+
+<!-- Quick Actions -->
+<div class="card">
+    <h2>Quick Actions</h2>
+    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+        <a href="/" class="btn">View All Products</a>
+        <a href="/?deals=yes" class="btn">Products with Deals</a>
+        <a href="/?deals=no" class="btn btn-secondary">Products without Deals</a>
+    </div>
+</div>
+{% endblock %}

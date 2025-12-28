@@ -84,6 +84,29 @@ def index():
     )
 
 
+@app.route('/stats')
+def statistics():
+    """Statistics and dashboard page."""
+    db = get_db()
+
+    # Get all statistics
+    stats = db.get_statistics()
+    price_changes = db.get_price_changes()
+    last_scrape = db.get_last_scrape_time()
+
+    # Get all products for additional stats
+    all_products = db.get_all_products_with_latest_price()
+    total_products = len(all_products)
+
+    return render_template(
+        'statistics.html',
+        stats=stats,
+        price_changes=price_changes,
+        last_scrape=last_scrape,
+        total_products=total_products
+    )
+
+
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
     """Product detail page showing full price history."""

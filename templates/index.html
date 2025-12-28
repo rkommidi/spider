@@ -1,134 +1,59 @@
 {% extends "base.html" %}
 
-{% block title %}Product Price Tracker - Home{% endblock %}
+{% block title %}Products - Product Price Tracker{% endblock %}
 
 {% block content %}
-<div class="stats">
-    <div class="stat-box">
-        <h3>Total Products</h3>
-        <div class="value">{{ stats.total_products if stats else total_products }}</div>
-    </div>
-    <div class="stat-box">
-        <h3>Total Deals</h3>
-        <div class="value">{{ stats.total_deals if stats else 0 }}</div>
-    </div>
-    <div class="stat-box">
-        <h3>Products with Deals</h3>
-        <div class="value">{{ stats.products_with_deals if stats else 0 }}</div>
-    </div>
-    <div class="stat-box">
-        <h3>Avg Deals/Product</h3>
-        <div class="value">{{ stats.avg_deals_per_product if stats else 0 }}</div>
-    </div>
-    <div class="stat-box">
-        <h3>Price Changes</h3>
-        <div class="value">{{ price_changes|length }}</div>
-    </div>
-    <div class="stat-box">
-        <h3>Last Updated</h3>
-        <div class="value" style="font-size: 16px;">
-            {{ last_scrape | format_datetime if last_scrape else 'Never' }}
-        </div>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1 style="margin: 0; color: #2c3e50;">All Products</h1>
+    <div>
+        <a href="/stats" class="btn">View Statistics</a>
     </div>
 </div>
 
-{% if stats and stats.by_spirit_type %}
 <div class="card">
-    <h2>Products by Spirit Type</h2>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-        {% for spirit in stats.by_spirit_type %}
-        <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; text-align: center;">
-            <div style="font-size: 24px; font-weight: bold; color: #2196F3;">{{ spirit.count }}</div>
-            <div style="color: #666; margin-top: 5px;">{{ spirit.spirit_type }}</div>
-        </div>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
-
-{% if price_changes %}
-<div class="card">
-    <h2>Recent Price Changes</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Product</th>
-                <th>Previous Price</th>
-                <th>Current Price</th>
-                <th>Change</th>
-                <th>Updated</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in price_changes[:10] %}
-            <tr>
-                <td><a href="/product/{{ item.id }}">{{ item.name }}</a></td>
-                <td>{{ item.previous_price | format_price }}</td>
-                <td class="price">{{ item.current_price | format_price }}</td>
-                <td class="{{ item.price_change | price_change_class }}">
-                    {{ '{:+.2f}'.format(item.price_change) if item.price_change else 'N/A' }}
-                </td>
-                <td class="timestamp">{{ item.last_updated | format_datetime }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% endif %}
-
-<div class="card">
-    <h2>All Products</h2>
-
     <!-- Search and Filters -->
-    <form method="get" action="/" style="margin-bottom: 20px;">
-        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 10px; margin-bottom: 15px;">
-            <input type="text" name="search" value="{{ search_query }}" placeholder="Search products or brands..."
-                   style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-
-            <select name="category" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+    <form method="get" action="/" class="filter-form">
+        <div class="filter-grid">
+            <input type="text" name="search" value="{{ search_query }}" placeholder="Search products or brands...">
+            <select name="category">
                 <option value="">All Categories</option>
                 {% for category in categories %}
                 <option value="{{ category }}" {% if category_filter == category %}selected{% endif %}>{{ category }}</option>
                 {% endfor %}
             </select>
-
-            <select name="brand" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+            <select name="brand">
                 <option value="">All Brands</option>
                 {% for brand in brands %}
                 <option value="{{ brand }}" {% if brand_filter == brand %}selected{% endif %}>{{ brand }}</option>
                 {% endfor %}
             </select>
-
-            <select name="deals" style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+            <select name="deals">
                 <option value="">All Products</option>
                 <option value="yes" {% if deal_filter == 'yes' %}selected{% endif %}>With Deals Only</option>
                 <option value="no" {% if deal_filter == 'no' %}selected{% endif %}>No Deals</option>
             </select>
-
-            <button type="submit" style="padding: 10px 20px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">
-                Filter
-            </button>
+            <button type="submit">Filter</button>
         </div>
         {% if search_query or category_filter or brand_filter or deal_filter %}
-        <div style="margin-bottom: 10px;">
-            <a href="/" style="color: #2196F3; text-decoration: none; font-size: 14px;">Clear all filters</a>
+        <div class="filter-info">
+            <a href="/">Clear all filters</a>
             <span style="color: #666; margin-left: 10px;">Showing {{ total_products }} products</span>
         </div>
         {% endif %}
     </form>
 
     {% if products %}
-    <table>
+    <table id="products-table">
         <thead>
             <tr>
-                <th>Product Name</th>
-                <th>Brand</th>
-                <th>Category</th>
-                <th>Size</th>
-                <th>QTY/CSE</th>
-                <th>Latest Price</th>
-                <th>Deals</th>
-                <th>Last Updated</th>
+                <th class="sortable" data-type="text">Product Name</th>
+                <th class="sortable" data-type="text">Brand</th>
+                <th class="sortable" data-type="text">Category</th>
+                <th class="sortable" data-type="text">Size</th>
+                <th class="sortable" data-type="number">QTY/CSE</th>
+                <th class="sortable" data-type="price">Latest Price</th>
+                <th class="sortable" data-type="number">Deals</th>
+                <th class="sortable" data-type="date">Last Updated</th>
                 <th>Actions</th>
             </tr>
         </thead>
