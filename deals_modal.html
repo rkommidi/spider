@@ -1,0 +1,67 @@
+
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="m-modal__title">
+                    Create a New List
+                    <button type="button" class="m-modal__close-btn js-close-fav-algorithm-modal" aria-label="Close" data-dismiss="modal">
+                        <span class="icon-close" aria-hidden="true"></span>
+                    </button>
+                </h6>
+            </div>
+            <form action="/bbg/en/wishlist/createFromPredictiveProducts" method="post" class="validate-form is-prepared" id="favorite-new-list-algorithm-form" novalidate="novalidate">
+                <div class="modal-body">
+                    <div class="m-modal__content">
+                        <div class="a-radio-button m-radio-group__option favorites-new-list-radio-buttons">
+                            <input class="a-radio-button__input" type="radio" id="OPTION_1" name="productSuggestionOption" value="OPTION_1">
+                            <label class="a-radio-button__label" for="OPTION_1">
+                                <span>
+                                    Recommended from Order History
+                                </span>
+                            </label>
+                            <input class="a-radio-button__input" type="radio" id="OPTION_2" name="productSuggestionOption" value="OPTION_2">
+                            <label class="a-radio-button__label" for="OPTION_2">
+                                <span>
+                                    Products that Set You Apart
+                                </span>
+                            </label>
+                            <input class="a-radio-button__input" type="radio" id="OPTION_3" name="productSuggestionOption" value="OPTION_3">
+                            <label class="a-radio-button__label" for="OPTION_3">
+                                <span>
+                                    Trending In Your Area
+                                </span>
+                            </label>
+                            <input class="a-radio-button__input" type="radio" id="OPTION_4" name="productSuggestionOption" value="OPTION_4">
+                            <label class="a-radio-button__label" for="OPTION_4">
+                                <span>
+                                    Trending In Your State
+                                </span>
+                            </label>
+                            
+                            
+                            <div class="m-modal__create-initial-new-favorites-list-wrapper">
+                                <div class="m-text-input">
+                                    <input class="a-radio-button__input" type="radio" id="OPTION_5" name="productSuggestionOption" value="OPTION_5">
+                                    <label class="a-radio-button__label" for="OPTION_5">
+                                       <span>
+                                           Create a New List
+                                       </span>
+                                    </label>
+                                    <div class="m-text-input__wrapper">
+                                        <input class="a-text-input" type="text" data-msg-required="Please enter create a new list." id="create-new-favorites-list-text" name="name" placeholder="My New Favorites List" aria-label="My New Favorites List">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="submit" class="a-btn a-btn--primary js-create-new-fav-list" disabled="">
+                        Create List
+                    </button>
+                </div>
+                <input type="hidden" name="CSRFToken" value="13f6786e-6ce1-41a3-8bde-31b7f426e7cb">
+            </form>
+        </div>
+    </div>

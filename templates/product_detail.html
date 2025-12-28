@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} - Price History{% endblock %}
+
+{% block extra_css %}
+<style>
+    .product-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .product-title {
+        flex: 1;
+    }
+
+    .back-link {
+        margin-bottom: 20px;
+        display: inline-block;
+    }
+
+    .product-info {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .info-item {
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 5px;
+    }
+
+    .info-item label {
+        font-weight: 600;
+        color: #666;
+        font-size: 12px;
+        text-transform: uppercase;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .info-item .value {
+        color: #333;
+        font-size: 14px;
+    }
+
+    .deal-summary, .product-details {
+        background: #fff9e6;
+        border-left: 4px solid #ffc107;
+        padding: 15px;
+        margin: 15px 0;
+        border-radius: 4px;
+    }
+
+    .product-details {
+        background: #e7f3ff;
+        border-left-color: #2196F3;
+    }
+
+    .deals-section {
+        margin: 20px 0;
+    }
+
+    .deals-table {
+        width: 100%;
+        font-size: 13px;
+    }
+
+    .deals-table th {
+        background: #f8f9fa;
+        font-weight: 600;
+        text-align: left;
+        padding: 10px;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .deals-table td {
+        padding: 10px;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .deals-table tr:hover {
+        background: #f8f9fa;
+    }
+
+    .deal-type-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .deal-type-exact {
+        background: #e3f2fd;
+        color: #1976d2;
+    }
+
+    .deal-type-mix {
+        background: #fff3e0;
+        color: #f57c00;
+    }
+
+    .discount-highlight {
+        color: #388e3c;
+        font-weight: 600;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link btn">← Back to All Products</a>
+
+<div class="card">
+    <div class="product-header">
+        <div class="product-title">
+            <h1>{{ product.name }}</h1>
+            {% if product.url %}
+            <p><a href="{{ product.url }}" target="_blank">View on website →</a></p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="product-info">
+        {% if product.product_id %}
+        <div class="info-item">
+            <label>Product ID</label>
+            <div class="value">{{ product.product_id }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.brand %}
+        <div class="info-item">
+            <label>Brand</label>
+            <div class="value">{{ product.brand }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.supplier %}
+        <div class="info-item">
+            <label>Supplier</label>
+            <div class="value">{{ product.supplier }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.size %}
+        <div class="info-item">
+            <label>Size</label>
+            <div class="value">{{ product.size }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.qty_per_case %}
+        <div class="info-item">
+            <label>QTY/CSE</label>
+            <div class="value">{{ product.qty_per_case }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.proof_abv %}
+        <div class="info-item">
+            <label>Proof/ABV</label>
+            <div class="value">{{ product.proof_abv }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.container_type %}
+        <div class="info-item">
+            <label>Container Type</label>
+            <div class="value">{{ product.container_type }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.country_of_origin %}
+        <div class="info-item">
+            <label>Country of Origin</label>
+            <div class="value">{{ product.country_of_origin }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.region %}
+        <div class="info-item">
+            <label>Region</label>
+            <div class="value">{{ product.region }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.bottle_upc %}
+        <div class="info-item">
+            <label>Bottle UPC</label>
+            <div class="value">{{ product.bottle_upc }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.case_upc %}
+        <div class="info-item">
+            <label>Case UPC</label>
+            <div class="value">{{ product.case_upc }}</div>
+        </div>
+        {% endif %}
+
+        {% if product.categories %}
+        <div class="info-item">
+            <label>Categories</label>
+            <div class="value">{{ product.categories }}</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if product.product_details %}
+    <div class="product-details">
+        <h3 style="margin-top: 0;">Product Details</h3>
+        <p style="margin: 0;">{{ product.product_details }}</p>
+    </div>
+    {% endif %}
+</div>
+
+{% if deals %}
+<div class="card deals-section">
+    <h2>Available Deals ({{ deals|length }})</h2>
+    <table class="deals-table">
+        <thead>
+            <tr>
+                <th>Deal #</th>
+                <th>Type</th>
+                <th>Quantity</th>
+                <th>Bottle Price</th>
+                <th>Case Price</th>
+                <th>Discount/Unit</th>
+                <th>Deal Objective</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for deal in deals %}
+            <tr>
+                <td><strong>{{ deal.deal_number }}</strong></td>
+                <td>
+                    {% if deal.is_mix_and_match %}
+                    <span class="deal-type-badge deal-type-mix">Mix & Match</span>
+                    {% else %}
+                    <span class="deal-type-badge deal-type-exact">Exact Qty</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if deal.quantity %}
+                    {{ deal.quantity|int }} {{ deal.quantity_unit }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td class="price">
+                    {% if deal.estimated_bottle_price %}
+                    {{ deal.estimated_bottle_price | format_price }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td class="price">
+                    {% if deal.cse_price %}
+                    {{ deal.cse_price | format_price }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td class="discount-highlight">
+                    {% if deal.discount_per_unit %}
+                    ${{ "%.2f"|format(deal.discount_per_unit) }} off
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>{{ deal.deal_obj_type or '-' }}</td>
+                <td style="font-size: 12px; max-width: 300px;">
+                    {{ deal.deal_title or '-' }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if stats %}
+<div class="stats">
+    <div class="stat-box">
+        <h3>Current Price</h3>
+        <div class="value price">{{ stats.current | format_price }}</div>
+    </div>
+    <div class="stat-box">
+        <h3>Highest Price</h3>
+        <div class="value increase">{{ stats.highest | format_price }}</div>
+    </div>
+    <div class="stat-box">
+        <h3>Lowest Price</h3>
+        <div class="value decrease">{{ stats.lowest | format_price }}</div>
+    </div>
+    <div class="stat-box">
+        <h3>Average Price</h3>
+        <div class="value">{{ stats.average | format_price }}</div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Price History</h2>
+    {% if price_history %}
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Price</th>
+                <th>Scraped At</th>
+                <th>Change from Previous</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in price_history %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td class="price">{{ entry.price | format_price }}</td>
+                <td class="timestamp">{{ entry.scraped_at | format_datetime }}</td>
+                <td>
+                    {% if not loop.last %}
+                        {% set prev_price = price_history[loop.index].price %}
+                        {% set change = entry.price - prev_price %}
+                        <span class="{{ change | price_change_class }}">
+                            {{ '{:+.2f}'.format(change) }}
+                        </span>
+                    {% else %}
+                        <span class="neutral">-</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <h2>No Price History</h2>
+        <p>No price data available for this product yet.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
