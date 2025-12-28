@@ -3,41 +3,115 @@
 {% block title %}Products - Product Price Tracker{% endblock %}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <h1 style="margin: 0; color: #2c3e50;">All Products</h1>
+<!-- Page Header -->
+<div class="page-header">
     <div>
-        <a href="/stats" class="btn">View Statistics</a>
+        <h1>Product Search</h1>
+        <p class="page-subtitle">Browse and filter spirits inventory</p>
     </div>
+    <a href="/stats" class="btn">📊 Dashboard</a>
 </div>
 
-<div class="card">
-    <!-- Search and Filters -->
-    <form method="get" action="/" class="filter-form">
-        <div class="filter-grid">
-            <input type="text" name="search" value="{{ search_query }}" placeholder="Search products or brands...">
-            <select name="category">
-                <option value="">All Categories</option>
-                {% for category in categories %}
-                <option value="{{ category }}" {% if category_filter == category %}selected{% endif %}>{{ category }}</option>
-                {% endfor %}
-            </select>
-            <select name="brand">
-                <option value="">All Brands</option>
-                {% for brand in brands %}
-                <option value="{{ brand }}" {% if brand_filter == brand %}selected{% endif %}>{{ brand }}</option>
-                {% endfor %}
-            </select>
-            <select name="deals">
-                <option value="">All Products</option>
-                <option value="yes" {% if deal_filter == 'yes' %}selected{% endif %}>With Deals Only</option>
-                <option value="no" {% if deal_filter == 'no' %}selected{% endif %}>No Deals</option>
-            </select>
-            <button type="submit">Filter</button>
-        </div>
+<!-- Compact Results Summary Bar -->
+<div class="results-summary-bar">
+    <div class="results-count">
         {% if search_query or category_filter or brand_filter or deal_filter %}
-        <div class="filter-info">
-            <a href="/">Clear all filters</a>
-            <span style="color: #666; margin-left: 10px;">Showing {{ total_products }} products</span>
+            <strong>{{ filtered_stats.total_products }}</strong> of <strong>{{ stats.total_products if stats else '0' }}</strong> products
+        {% else %}
+            <strong>{{ filtered_stats.total_products }}</strong> total products
+        {% endif %}
+        <span class="separator">•</span>
+        <span class="deal-info">{{ filtered_stats.total_deals }} deals</span>
+        <span class="separator">•</span>
+        <span class="deal-info">{{ filtered_stats.products_with_deals }} with active deals</span>
+    </div>
+    {% if filtered_stats.by_spirit_type %}
+    <div class="spirit-types-inline">
+        {% for spirit in filtered_stats.by_spirit_type[:5] %}
+        <span class="spirit-badge">{{ spirit.spirit_type }}: {{ spirit.count }}</span>
+        {% endfor %}
+        {% if filtered_stats.by_spirit_type|length > 5 %}
+        <span class="spirit-badge">+{{ filtered_stats.by_spirit_type|length - 5 }} more</span>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Search and Filters Card -->
+<div class="card search-filters-card">
+    <form method="get" action="/" class="filter-form-redesign">
+        <!-- Primary Search -->
+        <div class="search-section">
+            <div class="search-input-wrapper">
+                <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <path d="M9 17A8 8 0 1 0 9 1a8 8 0 0 0 0 16zM19 19l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                <input type="text"
+                       name="search"
+                       value="{{ search_query }}"
+                       placeholder="Search by product name or brand..."
+                       class="search-input">
+                {% if search_query %}
+                <a href="/" class="clear-search" title="Clear search">×</a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Filters Row -->
+        <div class="filters-row">
+            <div class="filter-group">
+                <label>Category</label>
+                <select name="category">
+                    <option value="">All Categories</option>
+                    {% for category in categories %}
+                    <option value="{{ category }}" {% if category_filter == category %}selected{% endif %}>{{ category }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label>Brand</label>
+                <select name="brand">
+                    <option value="">All Brands</option>
+                    {% for brand in brands %}
+                    <option value="{{ brand }}" {% if brand_filter == brand %}selected{% endif %}>{{ brand }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label>Deals</label>
+                <select name="deals">
+                    <option value="">All Products</option>
+                    <option value="yes" {% if deal_filter == 'yes' %}selected{% endif %}>With Deals</option>
+                    <option value="no" {% if deal_filter == 'no' %}selected{% endif %}>No Deals</option>
+                </select>
+            </div>
+
+            <div class="filter-actions">
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
+                {% if search_query or category_filter or brand_filter or deal_filter %}
+                <a href="/" class="btn btn-secondary">Reset</a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Active Filters Tags -->
+        {% if search_query or category_filter or brand_filter or deal_filter %}
+        <div class="active-filters">
+            <span class="active-filters-label">Active filters:</span>
+            {% if search_query %}
+            <span class="filter-tag">Search: "{{ search_query }}" <a href="?category={{ category_filter }}&brand={{ brand_filter }}&deals={{ deal_filter }}">×</a></span>
+            {% endif %}
+            {% if category_filter %}
+            <span class="filter-tag">Category: {{ category_filter }} <a href="?search={{ search_query }}&brand={{ brand_filter }}&deals={{ deal_filter }}">×</a></span>
+            {% endif %}
+            {% if brand_filter %}
+            <span class="filter-tag">Brand: {{ brand_filter }} <a href="?search={{ search_query }}&category={{ category_filter }}&deals={{ deal_filter }}">×</a></span>
+            {% endif %}
+            {% if deal_filter %}
+            <span class="filter-tag">Deals: {{ 'With Deals' if deal_filter == 'yes' else 'No Deals' }} <a href="?search={{ search_query }}&category={{ category_filter }}&brand={{ brand_filter }}">×</a></span>
+            {% endif %}
         </div>
         {% endif %}
     </form>

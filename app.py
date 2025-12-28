@@ -51,7 +51,7 @@ def index():
     elif deal_filter == 'no':
         products = [p for p in products if p.get('deal_count', 0) == 0]
 
-    # Get statistics
+    # Get statistics for all products (for filter dropdowns)
     all_products = db.get_all_products_with_latest_price()
     stats = db.get_statistics()
 
@@ -65,6 +65,32 @@ def index():
         if p.get('brand'):
             brands.add(p['brand'])
 
+    # Calculate statistics for filtered results
+    filtered_stats = {
+        'total_products': len(products),
+        'total_deals': sum(p.get('deal_count', 0) for p in products),
+        'products_with_deals': len([p for p in products if p.get('deal_count', 0) > 0]),
+        'by_spirit_type': {}
+    }
+
+    # Calculate spirit type breakdown for filtered results
+    spirit_counts = {}
+    for p in products:
+        if p.get('categories'):
+            # Extract spirit type from categories
+            categories_list = p['categories'].split(', ')
+            for cat in categories_list:
+                cat = cat.strip()
+                # Count each category
+                if cat:
+                    spirit_counts[cat] = spirit_counts.get(cat, 0) + 1
+
+    # Convert to list format sorted by count
+    filtered_stats['by_spirit_type'] = [
+        {'spirit_type': spirit, 'count': count}
+        for spirit, count in sorted(spirit_counts.items(), key=lambda x: x[1], reverse=True)
+    ]
+
     last_scrape = db.get_last_scrape_time()
     price_changes = db.get_price_changes()
 
@@ -75,6 +101,7 @@ def index():
         price_changes=price_changes,
         total_products=len(products),
         stats=stats,
+        filtered_stats=filtered_stats,
         categories=sorted(categories),
         brands=sorted(brands),
         search_query=search_query,
