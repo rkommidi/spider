@@ -4,15 +4,62 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from contextlib import contextmanager
+from urllib.parse import urlparse
 
 
 class Database:
-    """Handles all SQLite database operations for product price tracking."""
+    """Handles database operations for product price tracking.
+
+    Supports both SQLite and PostgreSQL with automatic detection based on:
+    - DATABASE_URL environment variable (PostgreSQL connection string)
+    - db_path parameter (SQLite file path)
+
+    PostgreSQL mode: Set DATABASE_URL=postgresql://user:pass@host:port/dbname
+    SQLite mode: Pass db_path or leave DATABASE_URL unset
+    """
 
     def __init__(self, db_path: str = "data/products.db"):
         self.db_path = db_path
-        self._ensure_database_directory()
+        self.database_url = os.getenv('DATABASE_URL')
+
+        # Auto-detect database type
+        if self.database_url and self.database_url.startswith('postgresql'):
+            self.db_type = 'postgresql'
+            self._init_postgresql()
+        else:
+            self.db_type = 'sqlite'
+            self._ensure_database_directory()
+
         self._init_tables()
+
+    def _init_postgresql(self):
+        """Initialize PostgreSQL-specific imports and settings."""
+        global psycopg2
+        global pool
+        try:
+            import psycopg2
+            import psycopg2.extras
+            from psycopg2 import pool as pg_pool
+
+            # Parse connection URL
+            parsed = urlparse(self.database_url)
+
+            # Create connection pool for better performance
+            self.pg_pool = pg_pool.SimpleConnectionPool(
+                1, 10,  # min and max connections
+                user=parsed.username,
+                password=parsed.password,
+                host=parsed.hostname,
+                port=parsed.port or 5432,
+                database=parsed.path[1:]  # Remove leading /
+            )
+            logging.info("✅ PostgreSQL connection pool initialized")
+        except ImportError:
+            logging.error("❌ psycopg2 not installed. Install with: pip install psycopg2-binary")
+            raise
+        except Exception as e:
+            logging.error(f"❌ Failed to initialize PostgreSQL: {e}")
+            raise
 
     def _ensure_database_directory(self):
         """Create database directory if it doesn't exist."""
@@ -20,29 +67,74 @@ class Database:
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir)
 
+    class _ConnectionWrapper:
+        """Wrapper to make PostgreSQL connection behave like SQLite with dict rows."""
+        def __init__(self, pg_conn):
+            self._conn = pg_conn
+            self._original_cursor = pg_conn.cursor
+
+        def cursor(self):
+            return self._original_cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        def commit(self):
+            return self._conn.commit()
+
+        def rollback(self):
+            return self._conn.rollback()
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
     @contextmanager
     def get_connection(self):
-        """Context manager for database connections."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        """Context manager for database connections.
+
+        Returns a connection object appropriate for the database type.
+        Automatically handles commits, rollbacks, and cleanup.
+        """
+        if self.db_type == 'postgresql':
+            pg_conn = self.pg_pool.getconn()
+            pg_conn.autocommit = False
+            conn = self._ConnectionWrapper(pg_conn)
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                self.pg_pool.putconn(pg_conn)
+        else:
+            # SQLite
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def _get_placeholder(self) -> str:
+        """Get the parameter placeholder for the current database type."""
+        return '%s' if self.db_type == 'postgresql' else '?'
+
+    def _get_autoincrement(self) -> str:
+        """Get the auto-increment syntax for the current database type."""
+        return 'SERIAL PRIMARY KEY' if self.db_type == 'postgresql' else 'INTEGER PRIMARY KEY AUTOINCREMENT'
 
     def _init_tables(self):
         """Create database tables if they don't exist."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            autoincrement = self._get_autoincrement()
 
             # Products table
-            cursor.execute("""
+            cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS products (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {autoincrement},
                     name TEXT NOT NULL,
                     url TEXT,
                     product_id TEXT,
@@ -64,13 +156,14 @@ class Database:
                 )
             """)
 
-            # Migrate existing table if needed
-            self._migrate_products_table(cursor)
+            # Migrate existing table if needed (SQLite only)
+            if self.db_type == 'sqlite':
+                self._migrate_products_table(cursor)
 
             # Price history table
-            cursor.execute("""
+            cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS price_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {autoincrement},
                     product_id INTEGER NOT NULL,
                     price REAL NOT NULL,
                     scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -91,9 +184,9 @@ class Database:
             """)
 
             # Deals table
-            cursor.execute("""
+            cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS deals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {autoincrement},
                     product_id INTEGER NOT NULL,
                     deal_title TEXT,
                     deal_number TEXT,
@@ -127,6 +220,8 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_deals_deal_number
                 ON deals(deal_number)
             """)
+
+            logging.info(f"✅ Database tables initialized ({self.db_type})")
 
     def _migrate_products_table(self, cursor):
         """Add new columns to products table if they don't exist."""
@@ -177,6 +272,7 @@ class Database:
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            placeholder = self._get_placeholder()
 
             # Build column names and values for insert
             base_columns = ['name', 'url']
@@ -196,21 +292,27 @@ class Database:
 
             # Create INSERT statement
             columns_str = ', '.join(base_columns)
-            placeholders = ', '.join(['?' for _ in base_columns])
+            placeholders = ', '.join([placeholder for _ in base_columns])
 
-            # Try to insert, ignore if exists
-            cursor.execute(
-                f"INSERT OR IGNORE INTO products ({columns_str}) VALUES ({placeholders})",
-                base_values
-            )
+            # Insert with database-specific syntax
+            if self.db_type == 'postgresql':
+                cursor.execute(
+                    f"INSERT INTO products ({columns_str}) VALUES ({placeholders}) ON CONFLICT (name, url) DO NOTHING",
+                    base_values
+                )
+            else:
+                cursor.execute(
+                    f"INSERT OR IGNORE INTO products ({columns_str}) VALUES ({placeholders})",
+                    base_values
+                )
 
             # Get the product ID
             cursor.execute(
-                "SELECT id FROM products WHERE name = ? AND (url = ? OR (url IS NULL AND ? IS NULL))",
+                f"SELECT id FROM products WHERE name = {placeholder} AND (url = {placeholder} OR (url IS NULL AND {placeholder} IS NULL))",
                 (name, url, url)
             )
             result = cursor.fetchone()
-            product_id = result[0] if result else None
+            product_id = result['id'] if result else None
 
             # Update existing product with new fields if provided
             if product_id and kwargs:
@@ -218,13 +320,13 @@ class Database:
                 update_values = []
                 for col in valid_columns:
                     if col in kwargs and kwargs[col] is not None:
-                        update_parts.append(f"{col} = ?")
+                        update_parts.append(f"{col} = {placeholder}")
                         update_values.append(kwargs[col])
 
                 if update_parts:
                     update_values.append(product_id)
                     cursor.execute(
-                        f"UPDATE products SET {', '.join(update_parts)} WHERE id = ?",
+                        f"UPDATE products SET {', '.join(update_parts)} WHERE id = {placeholder}",
                         update_values
                     )
 
@@ -247,16 +349,20 @@ class Database:
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            placeholder = self._get_placeholder()
 
             try:
                 cursor.execute(
-                    "INSERT INTO price_history (product_id, price, scraped_at) VALUES (?, ?, ?)",
+                    f"INSERT INTO price_history (product_id, price, scraped_at) VALUES ({placeholder}, {placeholder}, {placeholder})",
                     (product_id, price, scraped_at.isoformat())
                 )
                 return True
-            except sqlite3.IntegrityError:
-                # Duplicate entry
-                return False
+            except Exception as e:
+                # Check if it's an integrity/uniqueness error
+                error_msg = str(e).lower()
+                if 'unique' in error_msg or 'duplicate' in error_msg or 'integrity' in error_msg:
+                    return False
+                raise
 
     def insert_deal(self, product_id: int, **deal_data) -> bool:
         """
@@ -271,6 +377,7 @@ class Database:
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            placeholder = self._get_placeholder()
 
             # Build column names and values
             columns = ['product_id']
@@ -290,7 +397,7 @@ class Database:
                     values.append(deal_data[col])
 
             columns_str = ', '.join(columns)
-            placeholders = ', '.join(['?' for _ in columns])
+            placeholders = ', '.join([placeholder for _ in columns])
 
             try:
                 cursor.execute(
@@ -298,9 +405,12 @@ class Database:
                     values
                 )
                 return True
-            except sqlite3.IntegrityError:
-                # Duplicate entry
-                return False
+            except Exception as e:
+                # Check if it's an integrity/uniqueness error
+                error_msg = str(e).lower()
+                if 'unique' in error_msg or 'duplicate' in error_msg or 'integrity' in error_msg:
+                    return False
+                raise
 
     def delete_deals_for_product(self, product_id: int) -> int:
         """
@@ -314,7 +424,8 @@ class Database:
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM deals WHERE product_id = ?", (product_id,))
+            placeholder = self._get_placeholder()
+            cursor.execute(f"DELETE FROM deals WHERE product_id = {placeholder}", (product_id,))
             return cursor.rowcount
 
     def get_deals_for_product(self, product_id: int) -> List[Dict]:
@@ -329,9 +440,10 @@ class Database:
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            query = """
+            placeholder = self._get_placeholder()
+            query = f"""
                 SELECT * FROM deals
-                WHERE product_id = ?
+                WHERE product_id = {placeholder}
                 ORDER BY quantity ASC
             """
             cursor.execute(query, (product_id,))
@@ -400,15 +512,16 @@ class Database:
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            placeholder = self._get_placeholder()
 
-            query = """
+            query = f"""
                 SELECT
                     id,
                     product_id,
                     price,
                     scraped_at
                 FROM price_history
-                WHERE product_id = ?
+                WHERE product_id = {placeholder}
                 ORDER BY scraped_at DESC
             """
 
@@ -427,7 +540,8 @@ class Database:
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+            placeholder = self._get_placeholder()
+            cursor.execute(f"SELECT * FROM products WHERE id = {placeholder}", (product_id,))
             result = cursor.fetchone()
             return dict(result) if result else None
 
@@ -479,7 +593,7 @@ class Database:
             cursor = conn.cursor()
             cursor.execute("SELECT MAX(scraped_at) as last_scrape FROM price_history")
             result = cursor.fetchone()
-            return result[0] if result and result[0] else None
+            return result['last_scrape'] if result and result['last_scrape'] else None
 
     def get_statistics(self) -> Dict:
         """
@@ -494,20 +608,20 @@ class Database:
             stats = {}
 
             # Total products
-            cursor.execute("SELECT COUNT(*) FROM products")
-            stats['total_products'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) as count FROM products")
+            stats['total_products'] = cursor.fetchone()['count']
 
             # Total deals
-            cursor.execute("SELECT COUNT(*) FROM deals")
-            stats['total_deals'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) as count FROM deals")
+            stats['total_deals'] = cursor.fetchone()['count']
 
             # Products with deals
-            cursor.execute("SELECT COUNT(DISTINCT product_id) FROM deals")
-            stats['products_with_deals'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(DISTINCT product_id) as count FROM deals")
+            stats['products_with_deals'] = cursor.fetchone()['count']
 
             # Total price entries
-            cursor.execute("SELECT COUNT(*) FROM price_history")
-            stats['total_price_entries'] = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) as count FROM price_history")
+            stats['total_price_entries'] = cursor.fetchone()['count']
 
             # Products by category (top 10)
             cursor.execute("""

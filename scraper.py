@@ -119,53 +119,87 @@ class ProductScraper:
             Exception: If login fails
         """
         try:
-            page.goto(self.login_url, wait_until="networkidle", timeout=30000)
-            time.sleep(1)
-
-            # Accept cookie notice if present
+            # Use "load" wait strategy with extended timeout for slow page loads
             try:
-                cookie_btn = page.wait_for_selector('button.js-cookie-banner-btn', timeout=3000)
-                if cookie_btn:
-                    cookie_btn.click()
-                    logger.info("Accepted cookie notice")
-                    time.sleep(1)
+                page.goto(self.login_url, wait_until="load", timeout=60000)
+            except Exception as e:
+                logger.warning(f"Page load timed out or failed: {e}. Continuing anyway...")
+            time.sleep(3)  # Wait for any dynamic content to load
+
+            # Wait for page to fully load
+            time.sleep(2)
+
+            # Accept cookie notice if present (new location)
+            try:
+                # Try multiple cookie button selectors
+                cookie_selectors = [
+                    'button:has-text("Accept")',
+                    'button.js-cookie-banner-btn',
+                    'button[class*="cookie"]',
+                    'a:has-text("Accept")'
+                ]
+                for selector in cookie_selectors:
+                    try:
+                        cookie_btn = page.wait_for_selector(selector, timeout=2000, state='visible')
+                        if cookie_btn and cookie_btn.is_visible():
+                            cookie_btn.click()
+                            logger.info(f"Accepted cookie notice with selector: {selector}")
+                            time.sleep(1)
+                            break
+                    except:
+                        continue
             except:
                 logger.info("No cookie notice found or already accepted")
-                pass
 
-            # Look for common login form selectors
-            # These selectors may need to be adjusted based on actual site structure
-            # Gigya-specific selectors for the visible login form
+            # Wait for login form modal to appear
+            time.sleep(2)
+
+            # Look for login form selectors
+            # Based on screenshot: Email * and Password * fields in a modal
             username_selectors = [
                 'input[placeholder="Email *"]',
-                'input.gigya-input-text[name="username"]',
-                'input[name="username"][placeholder]',
-                'input[name="username"]',
-                'input[name="email"]',
+                'input[placeholder*="Email"]',
                 'input[type="email"]',
-                'input[id*="username"]',
+                'input[name="email"]',
+                'input[name="username"]',
+                'input.gigya-input-text[name="username"]',
                 'input[id*="email"]',
-                '#username',
-                '#email'
+                'input[id*="username"]',
+                '#email',
+                '#username'
             ]
 
             password_selectors = [
                 'input[placeholder="Password *"]',
-                'input.gigya-input-password[name="password"]',
-                'input[name="password"][placeholder]',
-                'input[name="password"]',
+                'input[placeholder*="Password"]',
                 'input[type="password"]',
+                'input[name="password"]',
+                'input.gigya-input-password[name="password"]',
                 '#password'
             ]
 
             submit_selectors = [
-                'input.gigya-input-submit[type="submit"]',
+                'button:has-text("Log In")',
+                'button:has-text("Log in")',
+                'button:has-text("LOGIN")',
                 'button[type="submit"]',
                 'input[type="submit"]',
-                'button:has-text("Log in")',
-                'button:has-text("Login")',
+                'input.gigya-input-submit[type="submit"]',
                 'button:has-text("Sign in")'
             ]
+
+            # Debug: Log all inputs on the page
+            logger.info("Scanning page for input fields...")
+            all_inputs = page.query_selector_all('input')
+            logger.info(f"Found {len(all_inputs)} input fields total")
+            for i, inp in enumerate(all_inputs[:10]):  # Log first 10
+                try:
+                    inp_type = inp.get_attribute('type') or 'text'
+                    inp_placeholder = inp.get_attribute('placeholder') or ''
+                    inp_visible = inp.is_visible()
+                    logger.info(f"  Input {i+1}: type={inp_type}, placeholder={inp_placeholder}, visible={inp_visible}")
+                except:
+                    pass
 
             # Find and fill username field (only visible fields)
             username_field = None
@@ -179,6 +213,7 @@ class ProductScraper:
                     continue
 
             if not username_field:
+                logger.error(f"Could not find username field. Tried selectors: {username_selectors[:5]}")
                 raise Exception("Could not find username field")
 
             username_field.fill(self.username)
@@ -246,7 +281,9 @@ class ProductScraper:
         except Exception as e:
             logger.error(f"Login failed: {str(e)}")
             # Take screenshot for debugging
-            page.screenshot(path="login_error.png")
+            screenshot_path = "/app/screenshots/login_error.png"
+            page.screenshot(path=screenshot_path)
+            logger.info(f"Screenshot saved to {screenshot_path}")
             raise Exception(f"Login failed: {str(e)}")
 
     def _save_checkpoint(self, product_urls: List[str], checkpoint_file: str = "scroll_checkpoint.json"):

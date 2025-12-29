@@ -1,0 +1,89 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: spider-db-dev
+    environment:
+      POSTGRES_DB: spider_dev
+      POSTGRES_USER: spider
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dev_password_change_me}
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - spider-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spider -d spider_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Flask Web Application
+  flask:
+    build:
+      context: .
+      dockerfile: docker/flask/Dockerfile
+    container_name: spider-flask-dev
+    environment:
+      FLASK_ENV: development
+      FLASK_DEBUG: "True"
+      DATABASE_URL: postgresql://spider:${DB_PASSWORD:-dev_password_change_me}@postgres:5432/spider_dev
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: 5000
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount code for hot reload in development
+      - ./app.py:/app/app.py:ro
+      - ./database.py:/app/database.py:ro
+      - ./templates:/app/templates:ro
+      - ./static:/app/static:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - spider-network
+    restart: unless-stopped
+    labels:
+      - "com.spider.service=flask"
+      - "com.spider.environment=dev"
+
+  # Scraper Service (manual trigger or cron)
+  scraper:
+    build:
+      context: .
+      dockerfile: docker/scraper/Dockerfile
+    container_name: spider-scraper-dev
+    environment:
+      DATABASE_URL: postgresql://spider:${DB_PASSWORD:-dev_password_change_me}@postgres:5432/spider_dev
+      WEBSITE_USERNAME: ${WEBSITE_USERNAME}
+      WEBSITE_PASSWORD: ${WEBSITE_PASSWORD}
+      LOGIN_URL: ${LOGIN_URL:-https://now.breakthrubev.com/bbg/en/login}
+    volumes:
+      - scraper_screenshots:/app/screenshots
+      - ./run_scraper.py:/app/run_scraper.py:ro
+      - ./scraper.py:/app/scraper.py:ro
+      - ./database.py:/app/database.py:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - spider-network
+    restart: "no"  # Manual trigger only in dev
+    labels:
+      - "com.spider.service=scraper"
+      - "com.spider.environment=dev"
+
+volumes:
+  postgres_data_dev:
+    driver: local
+  scraper_screenshots:
+    driver: local
+
+networks:
+  spider-network:
+    driver: bridge

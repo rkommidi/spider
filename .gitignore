@@ -25,6 +25,7 @@ wheels/
 
 # Environment
 .env
+.env.prod
 .venv
 
 # Database
@@ -53,3 +54,14 @@ playwright/.cache/
 tmp/
 temp/
 scroll_checkpoint.json
+
+# CI/CD
+deploy/
+backups/
+*.tar.gz
+
+# Jenkins (if running locally)
+.jenkins/
+
+# Docker
+docker-compose.override.yml
