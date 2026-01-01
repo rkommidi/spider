@@ -39,12 +39,14 @@ class ProductScraper:
         self.database = database
 
         # Use search URL with query parameter
-        # NOTE: search endpoints limit results, use browse pages for infinite scroll
-        if search_query.lower() in ['', 'browse', 'all']:
-            # Browse all products (supports infinite scroll for 7,000+ products)
+        if search_query.lower() in ['', 'browse']:
+            # Browse all products category page
             self.target_url = "https://now.breakthrubev.com/bbg/en/Shop-All/Spirits"
+        elif search_query.lower() == 'all':
+            # Search for all products (supports infinite scroll)
+            self.target_url = "https://now.breakthrubev.com/bbg/en/search/?q=all"
         else:
-            # Specific search query (may have limited results)
+            # Specific search query
             self.target_url = f"https://now.breakthrubev.com/bbg/en/search?text={search_query}"
 
         self.login_url = os.getenv('LOGIN_URL', "https://www.breakthrubev.com/login")
@@ -98,11 +100,8 @@ class ProductScraper:
                 logger.info("Attempting to log in...")
                 self._login(page)
 
-                # Navigate to search results or browse page
-                if self.search_query.lower() in ['', 'browse', 'all']:
-                    logger.info(f"Navigating to browse page (supports infinite scroll): {self.target_url}")
-                else:
-                    logger.info(f"Navigating to search results: {self.target_url}")
+                # Navigate to search results
+                logger.info(f"Navigating to target page: {self.target_url}")
                 page.goto(self.target_url, wait_until="networkidle", timeout=30000)
                 time.sleep(2)
 
