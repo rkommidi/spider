@@ -59,9 +59,9 @@ docker exec spider-jenkins cat /var/jenkins_home/secrets/initialAdminPassword
    - Blue Ocean (optional, modern UI)
 
 2. **Create Admin User**
-   - Username: `admin`
-   - Password: `<your-secure-password>`
-   - Full Name: `Spider Admin`
+   - Username: `raghav0401`
+   - Password: `qwerty`
+   - Full Name: `Raghav`
    - Email: `your-email@example.com`
 
 3. **Configure Jenkins URL**

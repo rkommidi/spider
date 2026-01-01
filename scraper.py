@@ -17,7 +17,7 @@ class ProductScraper:
 
     def __init__(self, username: str, password: str, headless: bool = True, search_query: str = "spirits",
                  enable_infinite_scroll: bool = False, scroll_pause_time: float = 2.0,
-                 scroll_max_attempts: int = 100, scroll_no_new_products_threshold: int = 3):
+                 scroll_max_attempts: int = 100, scroll_no_new_products_threshold: int = 3, database=None):
         """
         Initialize the scraper.
 
@@ -30,15 +30,19 @@ class ProductScraper:
             scroll_pause_time: Seconds to wait after each scroll for content to load (default: 2.0)
             scroll_max_attempts: Maximum scroll attempts as safety limit (default: 100)
             scroll_no_new_products_threshold: Stop after N scrolls with no new products (default: 3)
+            database: Database instance for real-time insertion (optional)
         """
         self.username = username
         self.password = password
         self.headless = headless
         self.search_query = search_query
+        self.database = database
 
-        # Use browse URL if query is empty or "all", otherwise use search
-        if search_query.lower() in ['', 'all', 'browse']:
+        # Use search URL with query parameter
+        if search_query.lower() in ['', 'browse']:
             self.target_url = "https://now.breakthrubev.com/bbg/en/Shop-All/Spirits"
+        elif search_query.lower() == 'all':
+            self.target_url = "https://now.breakthrubev.com/bbg/en/search/?q=all"
         else:
             self.target_url = f"https://now.breakthrubev.com/bbg/en/search?text={search_query}"
 
@@ -571,6 +575,44 @@ class ProductScraper:
                 if product['name']:
                     products.append(product)
                     logger.info(f"[{idx}/{len(product_urls)}] Successfully extracted: {product['name']}")
+
+                    # Insert to database immediately if database instance provided
+                    if self.database:
+                        try:
+                            product_id = self.database.insert_product(
+                                name=product['name'],
+                                url=product.get('url'),
+                                product_id=product.get('product_id'),
+                                bottle_upc=product.get('bottle_upc'),
+                                case_upc=product.get('case_upc'),
+                                size=product.get('size'),
+                                qty_per_case=product.get('qty_per_case'),
+                                proof_abv=product.get('proof_abv'),
+                                container_type=product.get('container_type'),
+                                brand=product.get('brand'),
+                                supplier=product.get('supplier'),
+                                country_of_origin=product.get('country_of_origin'),
+                                region=product.get('region'),
+                                categories=product.get('categories'),
+                                product_details=product.get('product_details')
+                            )
+
+                            if product_id and product.get('price'):
+                                self.database.insert_price(
+                                    product_id=product_id,
+                                    price=product['price'],
+                                    scraped_at=product['scraped_at']
+                                )
+
+                            # Insert deals if present
+                            if product_id and 'deals' in product and product['deals']:
+                                self.database.delete_deals_for_product(product_id)
+                                for deal in product['deals']:
+                                    self.database.insert_deal(product_id, **deal)
+
+                            logger.info(f"✅ Saved to database: {product['name']}")
+                        except Exception as db_error:
+                            logger.error(f"❌ Database insert failed for {product['name']}: {db_error}")
                 else:
                     logger.warning(f"[{idx}/{len(product_urls)}] Could not extract name from: {url}")
 

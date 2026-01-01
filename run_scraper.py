@@ -68,7 +68,7 @@ def main():
     logger.info(f"Initializing database at {config['db_path']}")
     db = Database(config['db_path'])
 
-    # Initialize scraper
+    # Initialize scraper with database for real-time insertion
     scraper = ProductScraper(
         username=config['username'],
         password=config['password'],
@@ -77,7 +77,8 @@ def main():
         enable_infinite_scroll=args.infinite_scroll,
         scroll_pause_time=args.scroll_pause,
         scroll_max_attempts=args.scroll_max_attempts,
-        scroll_no_new_products_threshold=args.scroll_threshold
+        scroll_no_new_products_threshold=args.scroll_threshold,
+        database=db  # Pass database for real-time insertion
     )
 
     try:
@@ -89,12 +90,14 @@ def main():
             logger.warning("No products were scraped")
             return
 
-        # Store products and prices
-        logger.info(f"Storing {len(products)} products in database...")
+        # Store products and prices (skip if already inserted in real-time)
+        logger.info(f"Verifying {len(products)} products in database...")
         new_products = 0
         new_prices = 0
         price_changes = 0
 
+        # If database was passed to scraper, products were already inserted in real-time
+        # This loop is now just for statistics and verification
         for product_data in products:
             # Insert or get product with all fields
             product_id = db.insert_product(

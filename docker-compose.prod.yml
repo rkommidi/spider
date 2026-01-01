@@ -1,90 +1,71 @@
-# Production Docker Compose Configuration
-# Deploy this stack to your NAS via Portainer
+version: '3.8'
 
 services:
-  # PostgreSQL Database (Production)
   postgres:
     image: postgres:16-alpine
-    container_name: spider-db-prod
-    restart: always
+    container_name: spider-postgres
     environment:
-      POSTGRES_USER: spider
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: spider_prod
+      - POSTGRES_DB=spider
+      - POSTGRES_USER=spider
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
     volumes:
-      - postgres_data_prod:/var/lib/postgresql/data
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks:
-      - spider-network
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U spider -d spider_prod"]
+      test: ["CMD-SHELL", "pg_isready -U spider"]
       interval: 10s
       timeout: 5s
       retries: 5
-    labels:
-      - "com.spider.service=database"
-      - "com.spider.environment=prod"
+    ports:
+      - "5432:5432"
 
-  # Flask Web Application (Production)
-  flask:
-    image: ${DOCKER_USERNAME}/spider-flask:latest
-    container_name: spider-flask-prod
-    restart: always
+  web:
+    image: raghav0401/spider-app:latest
+    container_name: spider-web
+    ports:
+      - "5000:5000"
+    volumes:
+      # Only mount data directory for database persistence (SQLite)
+      - spider-data:/app/data
+    env_file:
+      - .env
+    environment:
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=5000
+      - FLASK_DEBUG=False
+      - DATABASE_URL=postgresql://spider:${POSTGRES_PASSWORD:-changeme}@postgres:5432/spider
+    command: python app.py
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://spider:${DB_PASSWORD}@postgres:5432/spider_prod
-      FLASK_ENV: production
-      FLASK_DEBUG: False
-      FLASK_HOST: 0.0.0.0
-      FLASK_PORT: 5000
-    ports:
-      - "5000:5000"
-    networks:
-      - spider-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    labels:
-      - "com.spider.service=flask"
-      - "com.spider.environment=prod"
-      - "traefik.enable=true"  # If using Traefik reverse proxy
 
-  # Scraper Service (Production - Scheduled via cron or manual trigger)
   scraper:
-    image: ${DOCKER_USERNAME}/spider-scraper:latest
-    container_name: spider-scraper-prod
-    restart: "no"  # Manual trigger or cron
+    image: raghav0401/spider-app:latest
+    container_name: spider-scraper
+    volumes:
+      # Share data directory with web service
+      - spider-data:/app/data
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://spider:${POSTGRES_PASSWORD:-changeme}@postgres:5432/spider
+    command: python run_scraper.py
+    restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://spider:${DB_PASSWORD}@postgres:5432/spider_prod
-      WEBSITE_USERNAME: ${WEBSITE_USERNAME}
-      WEBSITE_PASSWORD: ${WEBSITE_PASSWORD}
-      LOGIN_URL: ${LOGIN_URL:-https://now.breakthrubev.com/bbg/en/login}
-    volumes:
-      - scraper_screenshots:/app/screenshots
-    networks:
-      - spider-network
-    labels:
-      - "com.spider.service=scraper"
-      - "com.spider.environment=prod"
+    profiles:
+      - scraper
 
 volumes:
-  postgres_data_prod:
+  spider-data:
     driver: local
-    name: spider_postgres_data_prod
-
-  scraper_screenshots:
+  postgres-data:
     driver: local
-    name: spider_scraper_screenshots_prod
-
-networks:
-  spider-network:
-    driver: bridge
-    name: spider_prod_network
