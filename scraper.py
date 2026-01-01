@@ -39,11 +39,12 @@ class ProductScraper:
         self.database = database
 
         # Use search URL with query parameter
-        if search_query.lower() in ['', 'browse']:
+        # NOTE: search endpoints limit results, use browse pages for infinite scroll
+        if search_query.lower() in ['', 'browse', 'all']:
+            # Browse all products (supports infinite scroll for 7,000+ products)
             self.target_url = "https://now.breakthrubev.com/bbg/en/Shop-All/Spirits"
-        elif search_query.lower() == 'all':
-            self.target_url = "https://now.breakthrubev.com/bbg/en/search/?q=all"
         else:
+            # Specific search query (may have limited results)
             self.target_url = f"https://now.breakthrubev.com/bbg/en/search?text={search_query}"
 
         self.login_url = os.getenv('LOGIN_URL', "https://www.breakthrubev.com/login")
@@ -97,8 +98,11 @@ class ProductScraper:
                 logger.info("Attempting to log in...")
                 self._login(page)
 
-                # Navigate to search results
-                logger.info(f"Navigating to search results: {self.target_url}")
+                # Navigate to search results or browse page
+                if self.search_query.lower() in ['', 'browse', 'all']:
+                    logger.info(f"Navigating to browse page (supports infinite scroll): {self.target_url}")
+                else:
+                    logger.info(f"Navigating to search results: {self.target_url}")
                 page.goto(self.target_url, wait_until="networkidle", timeout=30000)
                 time.sleep(2)
 
@@ -380,6 +384,26 @@ class ProductScraper:
 
         logger.info("Starting infinite scroll to collect all product URLs...")
 
+        # First, try to find the scrollable product container
+        scrollable_container = None
+        container_selectors = [
+            '.o-product-listing__results',
+            '.m-product-grid',
+            '.product-listing',
+            'div[class*="product-list"]',
+            'div[class*="search-results"]'
+        ]
+
+        for selector in container_selectors:
+            elem = page.query_selector(selector)
+            if elem:
+                logger.info(f"Found product container with selector: {selector}")
+                scrollable_container = selector
+                break
+
+        if not scrollable_container:
+            logger.warning("Could not find specific product container, will scroll document body")
+
         while scroll_count < self.scroll_max_attempts:
             scroll_count += 1
 
@@ -424,7 +448,30 @@ class ProductScraper:
             else:
                 consecutive_no_new = 0
 
-            # Scroll to bottom of page
+            # Try multiple scroll strategies
+            if scrollable_container:
+                # Strategy 1: Scroll the specific container
+                try:
+                    page.evaluate(f"""
+                        const container = document.querySelector('{scrollable_container}');
+                        if (container) {{
+                            container.scrollTop = container.scrollHeight;
+                        }}
+                    """)
+                    logger.debug(f"Scrolled container: {scrollable_container}")
+                except Exception as e:
+                    logger.debug(f"Container scroll failed: {e}")
+
+            # Strategy 2: Scroll to the last product card (always try this)
+            try:
+                last_card = page.query_selector_all('.m-product-card')[-1]
+                if last_card:
+                    last_card.scroll_into_view_if_needed()
+                    logger.debug("Scrolled to last product card")
+            except Exception as e:
+                logger.debug(f"Scroll to last card failed: {e}")
+
+            # Strategy 3: Scroll document body (fallback)
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
             # Wait for potential new content to load
