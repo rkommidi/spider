@@ -367,9 +367,9 @@ class ProductScraper:
                     return False
         return False
 
-    def _scroll_and_collect_product_urls(self, page: Page) -> List[str]:
+    def _collect_urls_via_pagination(self, page: Page) -> List[str]:
         """
-        Scroll the search results page to load all products via infinite scroll.
+        Navigate through all pagination pages to collect product URLs.
 
         Args:
             page: Playwright page object
@@ -378,38 +378,133 @@ class ProductScraper:
             List of unique product URLs discovered
         """
         product_urls = set()
-        consecutive_no_new = 0
-        scroll_count = 0
+        current_page = 1
+        max_pages = self.scroll_max_attempts  # Reuse as max pages to visit
 
-        logger.info("Starting infinite scroll to collect all product URLs...")
+        logger.info("Starting pagination to collect all product URLs...")
 
-        # First, try to find the scrollable product container
-        scrollable_container = None
-        container_selectors = [
-            '.o-product-listing__results',
-            '.m-product-grid',
-            '.product-listing',
-            'div[class*="product-list"]',
-            'div[class*="search-results"]'
-        ]
+        while current_page <= max_pages:
+            # Extract product URLs from current page
+            product_cards = page.query_selector_all('.m-product-card')
+            page_products = 0
 
-        for selector in container_selectors:
-            elem = page.query_selector(selector)
-            if elem:
-                logger.info(f"Found product container with selector: {selector}")
-                scrollable_container = selector
+            for card in product_cards:
+                try:
+                    link_elem = card.query_selector('a.m-product-card__link, a[href*="/p/"]')
+                    if link_elem:
+                        href = link_elem.get_attribute('href')
+                        if href:
+                            if href.startswith('/'):
+                                url = f"{self.base_domain}{href}"
+                            elif href.startswith('http'):
+                                url = href
+                            else:
+                                continue
+                            # Clean up query parameters
+                            if '?' in url and '&ref=' in url:
+                                url = url.split('&ref=')[0]
+                            product_urls.add(url)
+                            page_products += 1
+                except Exception as e:
+                    logger.debug(f"Error extracting URL from card: {str(e)}")
+                    continue
+
+            logger.info(f"Page {current_page}: Found {page_products} products on this page ({len(product_urls)} total unique)")
+
+            # Check if we've found all products or reached a page with no products
+            if page_products == 0:
+                logger.info(f"No products found on page {current_page}, stopping pagination")
                 break
 
-        if not scrollable_container:
-            logger.warning("Could not find specific product container, will scroll document body")
+            # Save checkpoint every 20 pages
+            if current_page % 20 == 0:
+                self._save_checkpoint(list(product_urls))
+                logger.info(f"Progress: Visited {current_page} pages, collected {len(product_urls)} URLs")
 
-        while scroll_count < self.scroll_max_attempts:
-            scroll_count += 1
+            # Try to navigate to next page
+            current_page += 1
 
-            # Get current product count before scroll
-            previous_count = len(product_urls)
+            # Look for "next" button or page number link
+            next_clicked = False
 
-            # Extract product URLs currently in DOM
+            # Strategy 1: Click the "next" arrow button
+            next_selectors = [
+                'a.m-pagination__link--next',
+                'a[aria-label="Next"]',
+                'a.pagination-next',
+                'button.pagination-next',
+                '.pagination .next'
+            ]
+
+            for selector in next_selectors:
+                try:
+                    next_button = page.query_selector(selector)
+                    if next_button and next_button.is_visible():
+                        logger.debug(f"Clicking next button: {selector}")
+                        next_button.click()
+                        next_clicked = True
+                        break
+                except Exception as e:
+                    logger.debug(f"Failed to click next with selector {selector}: {e}")
+                    continue
+
+            # Strategy 2: Construct URL with page parameter
+            if not next_clicked:
+                try:
+                    # Construct next page URL
+                    base_url = page.url.split('?')[0]
+                    query_params = page.url.split('?')[1] if '?' in page.url else 'q=all'
+
+                    # Remove existing page parameter if present
+                    params = [p for p in query_params.split('&') if not p.startswith('page=')]
+                    params.append(f'page={current_page}')
+                    next_url = f"{base_url}?{'&'.join(params)}"
+
+                    logger.debug(f"Navigating to page {current_page}: {next_url}")
+                    page.goto(next_url, wait_until="networkidle", timeout=15000)
+                    next_clicked = True
+                except Exception as e:
+                    logger.error(f"Failed to navigate to page {current_page}: {e}")
+                    break
+
+            if not next_clicked:
+                logger.warning(f"Could not navigate to page {current_page}, stopping pagination")
+                break
+
+            # Wait for page to load
+            time.sleep(self.scroll_pause_time)
+
+            try:
+                page.wait_for_selector('.m-product-card', timeout=10000)
+            except PlaywrightTimeoutError:
+                logger.warning(f"Products not loaded on page {current_page}")
+
+        # Save final checkpoint
+        self._save_checkpoint(list(product_urls))
+
+        logger.info(f"Pagination complete: Visited {current_page - 1} pages, collected {len(product_urls)} unique product URLs")
+        return list(product_urls)
+
+    def _scroll_and_collect_product_urls(self, page: Page) -> List[str]:
+        """
+        Collect product URLs - uses pagination instead of scroll since the site uses pagination.
+
+        Args:
+            page: Playwright page object
+
+        Returns:
+            List of unique product URLs discovered
+        """
+        # Detect if pagination exists
+        pagination = page.query_selector('.m-pagination, .pagination, nav[aria-label*="pagination" i]')
+
+        if pagination:
+            logger.info("Detected pagination controls - using pagination strategy")
+            return self._collect_urls_via_pagination(page)
+        else:
+            logger.warning("No pagination detected - this may not collect all products")
+            # Fallback to extracting visible products only
+            product_urls = set()
             product_cards = page.query_selector_all('.m-product-card')
             for card in product_cards:
                 try:
@@ -423,78 +518,10 @@ class ProductScraper:
                                 url = href
                             else:
                                 continue
-                            # Clean up query parameters if needed
-                            if '?' in url:
-                                url = url.split('?')[0] + '?' + url.split('?')[1].split('&ref=')[0] if '&ref=' in url else url
                             product_urls.add(url)
                 except Exception as e:
-                    logger.debug(f"Error extracting URL from card: {str(e)}")
-                    continue
-
-            # Check if new products were found
-            new_count = len(product_urls)
-            new_products_found = new_count - previous_count
-
-            logger.info(f"Scroll {scroll_count}: Found {new_count} total products ({new_products_found} new)")
-
-            if new_products_found == 0:
-                consecutive_no_new += 1
-                logger.info(f"No new products found ({consecutive_no_new}/{self.scroll_no_new_products_threshold})")
-
-                if consecutive_no_new >= self.scroll_no_new_products_threshold:
-                    logger.info(f"Stopping: No new products after {consecutive_no_new} consecutive scrolls")
-                    break
-            else:
-                consecutive_no_new = 0
-
-            # Try multiple scroll strategies
-            if scrollable_container:
-                # Strategy 1: Scroll the specific container
-                try:
-                    page.evaluate(f"""
-                        const container = document.querySelector('{scrollable_container}');
-                        if (container) {{
-                            container.scrollTop = container.scrollHeight;
-                        }}
-                    """)
-                    logger.debug(f"Scrolled container: {scrollable_container}")
-                except Exception as e:
-                    logger.debug(f"Container scroll failed: {e}")
-
-            # Strategy 2: Scroll to the last product card (always try this)
-            try:
-                last_card = page.query_selector_all('.m-product-card')[-1]
-                if last_card:
-                    last_card.scroll_into_view_if_needed()
-                    logger.debug("Scrolled to last product card")
-            except Exception as e:
-                logger.debug(f"Scroll to last card failed: {e}")
-
-            # Strategy 3: Scroll document body (fallback)
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-
-            # Wait for potential new content to load
-            time.sleep(self.scroll_pause_time)
-
-            # Additional wait for network to settle (optional but recommended)
-            try:
-                page.wait_for_load_state("networkidle", timeout=5000)
-            except PlaywrightTimeoutError:
-                # Network might not settle, continue anyway
-                pass
-
-            # Save checkpoint every 20 scrolls
-            if scroll_count % 20 == 0:
-                self._save_checkpoint(list(product_urls))
-
-        if scroll_count >= self.scroll_max_attempts:
-            logger.warning(f"Reached maximum scroll attempts ({self.scroll_max_attempts})")
-
-        # Save final checkpoint
-        self._save_checkpoint(list(product_urls))
-
-        logger.info(f"Infinite scroll complete: Collected {len(product_urls)} unique product URLs")
-        return list(product_urls)
+                    logger.debug(f"Error extracting URL: {e}")
+            return list(product_urls)
 
     def _extract_products(self, page: Page) -> List[Dict]:
         """
